@@ -1,0 +1,9 @@
+{
+  "jupyter.lab.setting-icon": "jupyter-dremio:catalog",
+  "jupyter.lab.setting-icon-label": "Dremio Catalog",
+  "title": "Dremio Catalog",
+  "description": "Settings for the Dremio catalog browser extension.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

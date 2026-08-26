@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "incremental": true,
+    "jsx": "react",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "noEmitOnError": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "preserveWatchOutput": true,
+    "resolveJsonModule": true,
+    "rootDir": "src",
+    "outDir": "lib",
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "target": "ES2017"
+  },
+  "include": ["src/**/*"]
+}

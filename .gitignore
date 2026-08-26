@@ -1,0 +1,42 @@
+# ── Build output ──────────────────────────────────────────────────────────────
+lib/
+dist/
+.wheel-build-tools/
+*.whl
+*.egg-info/
+jupyter_dremio/labextension/
+tsconfig.tsbuildinfo
+tsconfig*.tsbuildinfo
+
+# ── JS dependencies ───────────────────────────────────────────────────────────
+node_modules/
+.yarn/
+.yarn/install-state.gz
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ── JupyterLab ────────────────────────────────────────────────────────────────
+.jupyter/
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Claude Code local settings (personal, not for the team) ──────────────────
+.claude/
+
+# ── OS junk ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp

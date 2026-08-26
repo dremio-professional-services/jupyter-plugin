@@ -1,0 +1,82 @@
+[build-system]
+requires = [
+    "hatchling",
+    "hatch-nodejs-version>=0.3.2",
+    "hatch-jupyter-builder>=0.5",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "jupyter-dremio"
+version = "0.1.18"
+description = "JupyterLab extension for browsing the Dremio catalog"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+    "jupyterlab>=4.0.0,<5",
+    "jupyter_server>=2.0.0,<3",
+    "PyJWT[crypto]>=2.8,<3",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hatch",
+    "hatchling",
+    "hatch-nodejs-version",
+    "hatch-jupyter-builder",
+]
+sso = [
+    "requests-kerberos",
+]
+
+[project.entry-points."jupyter_server.extension"]
+jupyter_dremio = "jupyter_dremio"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jupyter_dremio"]
+artifacts = [
+    "jupyter_dremio/labextension",
+]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"jupyter_dremio/labextension" = "share/jupyter/labextensions/jupyter-dremio"
+"jupyter-config/server_config.d/jupyter_dremio.json" = "etc/jupyter/jupyter_server_config.d/jupyter_dremio.json"
+
+[tool.hatch.build.targets.sdist]
+artifacts = [
+    "jupyter_dremio/labextension",
+]
+
+[tool.hatch.build.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.5"]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = [
+    "jupyter_dremio/labextension/static/style.js",
+    "jupyter_dremio/labextension/package.json",
+]
+skip-if-exists = [
+    "jupyter_dremio/labextension/static/style.js",
+    "jupyter_dremio/labextension/package.json",
+]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build:prod"
+npm = ["jlpm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install:extension"
+npm = ["jlpm"]
+source_dir = "src"
+build_dir = "jupyter_dremio/labextension"
+
+[tool.jupyter-releaser.options]
+version-cmd = "hatch version"
+
+[tool.jupyter-releaser.hooks]
+before-build-npm = [
+    "python -m pip install jupyterlab",
+    "jlpm",
+]
+before-build-python = ["jlpm clean", "jlpm build:prod"]
