@@ -20,7 +20,7 @@ import {
   exchangeCloudPat,
   catalogItemKind,
 } from '../api';
-import { CatalogItemIcon } from './CatalogItemIcon';
+import { CatalogItemIcon, FavouriteIcon } from './CatalogItemIcon';
 
 type Mode = 'detecting' | 'proxy' | 'direct';
 
@@ -46,6 +46,46 @@ interface RootGroupProps {
   renderItem: (item: CatalogItem) => JSX.Element;
 }
 
+interface Favourite {
+  item: CatalogItem;
+  inSource: boolean;
+  inDatasetNamespace: boolean;
+}
+
+function favouriteStorageKey(creds: DremioCredentials): string {
+  return `jupyter-dremio:favourites:${creds.url}:${creds.username ?? creds.projectId ?? 'default'}`;
+}
+
+function readFavourites(creds: DremioCredentials): Favourite[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(favouriteStorageKey(creds)) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((value): value is Favourite => {
+      if (typeof value !== 'object' || value === null) return false;
+      const favourite = value as Favourite;
+      return typeof favourite.inSource === 'boolean' && typeof favourite.inDatasetNamespace === 'boolean' &&
+        typeof favourite.item?.id === 'string' &&
+        Array.isArray(favourite.item.path) && favourite.item.path.every(part => typeof part === 'string');
+    });
+  } catch {
+    return [];
+  }
+}
+
+function persistFavourites(creds: DremioCredentials, favourites: Favourite[]): void {
+  try {
+    localStorage.setItem(favouriteStorageKey(creds), JSON.stringify(favourites));
+  } catch {
+    // Keep the in-memory list usable when browser storage is unavailable.
+  }
+}
+
+function isFavouriteKind(item: CatalogItem, inSource: boolean, inDatasetNamespace: boolean): boolean {
+  const kind = catalogItemKind(item, inSource ? 'source' : undefined);
+  return (!inSource && inDatasetNamespace && (kind === 'pds' || kind === 'vds')) ||
+    kind === 'formatted-source-folder' || kind === 'formatted-source-file';
+}
+
 function RootGroup({ label, kind, items, expanded, onExpandedChange, renderItem }: RootGroupProps): JSX.Element {
   return (
     <div className="dremio-node">
@@ -69,6 +109,7 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
+  const [favourites, setFavourites] = useState<Favourite[]>([]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,6 +132,30 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
   useEffect(() => {
     onCredentialsChanged(creds);
   }, [creds, onCredentialsChanged]);
+
+  useEffect(() => {
+    if (!creds) {
+      setFavourites([]);
+      return;
+    }
+    let current = true;
+    const saved = readFavourites(creds);
+    void Promise.all(saved.map(async favourite => {
+      try {
+        const item = await fetchCatalogItem(creds, favourite.item.id);
+        return isFavouriteKind(item, favourite.inSource, favourite.inDatasetNamespace) ? { ...favourite, item } : null;
+      } catch (error) {
+        const missing = error instanceof Error && error.message.startsWith('404:');
+        return missing ? null : favourite;
+      }
+    })).then(validated => {
+      if (!current) return;
+      const next = validated.filter((favourite): favourite is Favourite => favourite !== null);
+      setFavourites(next);
+      persistFavourites(creds, next);
+    });
+    return () => { current = false; };
+  }, [creds, catalogRevision]);
 
   // Debounce: commit the query 400ms after the user stops typing
   useEffect(() => {
@@ -135,6 +200,18 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
   }, [creds, activeQuery, catalogRevision]);
 
   const selected = selectedItem?.id ?? null;
+  const favouriteIds = new Set(favourites.map(favourite => favourite.item.id));
+
+  const handleFavouriteChange = useCallback((item: CatalogItem, inSource: boolean, inDatasetNamespace: boolean, favourite: boolean) => {
+    if (!creds) return;
+    setFavourites(previous => {
+      const next = favourite
+        ? [...previous.filter(entry => entry.item.id !== item.id), { item, inSource, inDatasetNamespace }]
+        : previous.filter(entry => entry.item.id !== item.id);
+      persistFavourites(creds, next);
+      return next;
+    });
+  }, [creds]);
 
   const handleExpandedChange = useCallback((id: string, expanded: boolean) => {
     setExpandedIds(previous => {
@@ -252,6 +329,7 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
     setSearchResults([]);
     setSearchError(null);
     setSearchDiag(null);
+    setFavourites([]);
   };
 
   const handleRefreshRoot = useCallback(async () => {
@@ -340,11 +418,14 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
         setRootItems(prev => prev.filter(i => i.id !== id));
         if (selectedItem?.id === id) setSelectedItem(null);
       }}
+      favouriteIds={favouriteIds}
+      onFavouriteChange={handleFavouriteChange}
       onCatalogChanged={handleRefreshRoot}
       catalogRevision={catalogRevision}
       expanded={expandedIds.has(item.id)}
       expandedIds={expandedIds}
       onExpandedChange={handleExpandedChange}
+      inDatasetNamespace={catalogItemKind(item) === 'catalog' || catalogItemKind(item) === 'space'}
     />
   );
 
@@ -427,18 +508,64 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
                     onSelect={setSelectedItem}
                     onOpenWiki={handleOpenWiki}
                     onDeleteItem={id => setSearchResults(prev => prev.filter(i => i.id !== id))}
+                    favouriteIds={favouriteIds}
+                    onFavouriteChange={handleFavouriteChange}
                     onCatalogChanged={handleRefreshRoot}
                     catalogRevision={catalogRevision}
                     expanded={expandedIds.has(item.id)}
                     expandedIds={expandedIds}
                     onExpandedChange={handleExpandedChange}
                     inSource={sourceItems.some(source => source.path[0] === item.path[0])}
+                    inDatasetNamespace={catalogItems.some(catalog => catalog.path[0] === item.path[0]) || spaceItems.some(space => space.path[0] === item.path[0])}
                   />
                 ))}
               </div>
             )}
           </div>
         )}
+
+        <div className="dremio-node">
+          <div
+            className="dremio-node-row"
+            style={{ paddingLeft: '6px' }}
+            onClick={() => setExpandedIds(previous => {
+              const next = new Set(previous);
+              if (next.has('__favourites__')) next.delete('__favourites__');
+              else next.add('__favourites__');
+              return next;
+            })}
+          >
+            <span className={`dremio-chevron${expandedIds.has('__favourites__') ? ' dremio-chevron--open' : ''}`}>›</span>
+            <span className="dremio-node-icon"><FavouriteIcon /></span>
+            <span className="dremio-node-label">Favourites</span>
+          </div>
+          {expandedIds.has('__favourites__') && (
+            <div className="dremio-node-children">
+              {favourites.map(favourite => (
+                <CatalogNode
+                  key={favourite.item.id}
+                  item={favourite.item}
+                  creds={creds}
+                  depth={1}
+                  selected={selected}
+                  onSelect={setSelectedItem}
+                  onOpenWiki={handleOpenWiki}
+                  onDeleteItem={() => undefined}
+                  favouriteIds={favouriteIds}
+                  onFavouriteChange={handleFavouriteChange}
+                  onCatalogChanged={handleRefreshRoot}
+                  catalogRevision={catalogRevision}
+                  expanded={expandedIds.has(favourite.item.id)}
+                  expandedIds={expandedIds}
+                  onExpandedChange={handleExpandedChange}
+                  inSource={favourite.inSource}
+                  inDatasetNamespace={favourite.inDatasetNamespace}
+                />
+              ))}
+              {favourites.length === 0 && <div className="dremio-node-empty" style={{ paddingLeft: '24px' }}>No favourites</div>}
+            </div>
+          )}
+        </div>
 
         {/* ── Normal catalog tree (always visible) ── */}
         {rootLoading && (

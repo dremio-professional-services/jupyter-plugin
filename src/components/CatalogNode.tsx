@@ -30,6 +30,8 @@ interface Props {
   onSelect: (item: CatalogItem) => void;
   onOpenWiki: (item: CatalogItem) => void;
   onDeleteItem: (id: string) => void;
+  favouriteIds: ReadonlySet<string>;
+  onFavouriteChange: (item: CatalogItem, inSource: boolean, inDatasetNamespace: boolean, favourite: boolean) => void;
   onCatalogChanged: () => Promise<void>;
   catalogRevision: number;
   expanded: boolean;
@@ -37,6 +39,7 @@ interface Props {
   onExpandedChange: (id: string, expanded: boolean) => void;
   parentKind?: CatalogItemKind;
   inSource?: boolean;
+  inDatasetNamespace?: boolean;
 }
 
 const TYPE_BADGE: Record<string, string> = {
@@ -61,6 +64,8 @@ export function CatalogNode({
   onSelect,
   onOpenWiki,
   onDeleteItem,
+  favouriteIds,
+  onFavouriteChange,
   onCatalogChanged,
   catalogRevision,
   expanded,
@@ -68,6 +73,7 @@ export function CatalogNode({
   onExpandedChange,
   parentKind,
   inSource = false,
+  inDatasetNamespace = false,
 }: Props): JSX.Element {
   const [children, setChildren] = useState<CatalogItem[]>([]);
   const [fields, setFields] = useState<ColumnField[]>([]);
@@ -179,6 +185,9 @@ export function CatalogNode({
       : catalogDeleteLabel(item, detailType);
   const deleteActionLabel = deleteLabel ?? '';
   const canShowDeleteAction = Boolean(deleteLabel) && canRemoveCatalogItem(kind, withinSource);
+  const favourite = favouriteIds.has(item.id);
+  const canFavourite = (!withinSource && inDatasetNamespace && (physicalTable || virtualView)) ||
+    kind === 'formatted-source-folder' || kind === 'formatted-source-file';
 
   const handleDelete = async () => {
     if (!deleteLabel) return;
@@ -188,6 +197,7 @@ export function CatalogNode({
       else if (virtualView) await dropView(creds, item.path);
       else await deleteCatalogItem(creds, item.id);
       onDeleteItem(item.id);
+      onFavouriteChange(item, withinSource, inDatasetNamespace, false);
       await onCatalogChanged();
     } catch (e) {
       alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -269,11 +279,17 @@ export function CatalogNode({
               onClick: () => { void handleRegisterDataset(); },
               separator: true,
             }] : []),
+            ...(canFavourite ? [{
+              icon: favourite ? '★' : '☆',
+              label: favourite ? 'Remove from favourites' : 'Add to favourites',
+              onClick: () => onFavouriteChange(item, withinSource, inDatasetNamespace, !favourite),
+              separator: !(file || folder),
+            }] : []),
             ...(canShowDeleteAction ? [{
               icon: '🗑️',
               label: deleteActionLabel,
               onClick: () => { void handleDelete(); },
-              separator: !(file || folder),
+              separator: canFavourite || !(file || folder),
               danger: true,
             }] : []),
           ]}
@@ -333,6 +349,8 @@ export function CatalogNode({
               onSelect={onSelect}
               onOpenWiki={onOpenWiki}
               onDeleteItem={id => setChildren(prev => prev.filter(c => c.id !== id))}
+              favouriteIds={favouriteIds}
+              onFavouriteChange={onFavouriteChange}
               onCatalogChanged={onCatalogChanged}
               catalogRevision={catalogRevision}
               expanded={expandedIds.has(child.id)}
@@ -340,6 +358,7 @@ export function CatalogNode({
               onExpandedChange={onExpandedChange}
               parentKind={kind}
               inSource={withinSource}
+              inDatasetNamespace={inDatasetNamespace}
             />
           ))}
         </div>

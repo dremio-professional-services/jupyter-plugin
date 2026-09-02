@@ -17,6 +17,14 @@ const SVG_PROPS = {
   'aria-hidden': true,
 };
 
+export function FavouriteIcon(): JSX.Element {
+  return (
+    <svg {...SVG_PROPS}>
+      <path d="m8 1.4 1.9 4 4.3.6-3.1 3 .8 4.3L8 11.2l-3.9 2.1.8-4.3-3.1-3 4.3-.6 2-4Z" />
+    </svg>
+  );
+}
+
 function FolderIcon({ formatted = false }: { formatted?: boolean }): JSX.Element {
   return (
     <svg {...SVG_PROPS}>
