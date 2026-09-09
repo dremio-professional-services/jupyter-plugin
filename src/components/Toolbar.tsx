@@ -9,6 +9,8 @@ interface Props {
   onCreateFolder: () => void;
   onShowJobs: () => void;
   onNewNotebook: () => void;
+  onToggleAI: () => void;
+  aiOpen: boolean;
 }
 
 function IconJobs(): JSX.Element {
@@ -28,6 +30,15 @@ function IconNotebook(): JSX.Element {
       <rect x="4" y="2" width="16" height="20" rx="2"/>
       <polyline points="8 9 11 12 8 15"/>
       <line x1="13" y1="15" x2="16" y2="15"/>
+    </svg>
+  );
+}
+
+function IconAI(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
+      <path d="M8 9h8M8 13h5"/>
     </svg>
   );
 }
@@ -60,6 +71,8 @@ export function Toolbar({
   onCreateFolder,
   onShowJobs,
   onNewNotebook,
+  onToggleAI,
+  aiOpen,
 }: Props): JSX.Element {
   const canCreateFolder =
     selectedItem?.containerType === 'SPACE' || selectedItem?.containerType === 'FOLDER';
@@ -91,6 +104,16 @@ export function Toolbar({
         aria-label="New Dremio notebook"
       >
         <IconNotebook />
+      </button>
+
+      <button
+        className={`dremio-toolbar-btn${aiOpen ? ' dremio-toolbar-btn--active' : ''}`}
+        onClick={onToggleAI}
+        title={`${aiOpen ? 'Close' : 'Open'} Dremio AI`}
+        aria-label="Toggle Dremio AI"
+        aria-pressed={aiOpen}
+      >
+        <IconAI />
       </button>
 
       {selectedItem && (

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import html
@@ -7,6 +8,7 @@ import secrets
 import time
 import urllib.parse
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Optional, Union
 
 import requests
@@ -1009,6 +1011,158 @@ class SqlHandler(APIHandler):
         self.finish(resp.json())
 
 
+def _callable_ai_models(providers):
+    models = []
+    for provider in providers:
+        provider_id = provider.get("id")
+        provider_name = provider.get("name")
+        model_name = provider.get("defaultModelName")
+        privileges = provider.get("privileges", {})
+        if (
+            not provider_id
+            or not provider_name
+            or not model_name
+            or (
+                privileges.get("canCallModel") is not True
+                and not (
+                    "canCallModel" not in privileges
+                    and provider.get("isDefault") is True
+                )
+            )
+        ):
+            continue
+        models.append({
+            "providerId": provider_id,
+            "providerName": provider_name,
+            "modelName": model_name,
+            "isDefault": provider.get("isDefault") is True,
+        })
+    return models
+
+
+class AiModelsHandler(APIHandler):
+    """Return default Agent models from providers callable by the current user."""
+
+    @web.authenticated
+    def get(self):
+        dremio_url = _dremio_url(self)
+        token = _dremio_token(self)
+        providers_resp = requests.get(
+            f"{dremio_url}/api/v4/model-provider/config",
+            headers={**_auth_header(token), "Accept": "application/json"},
+            timeout=30,
+        )
+        if providers_resp.status_code == 403:
+            self.finish({"models": []})
+            return
+        if not providers_resp.ok:
+            raise web.HTTPError(providers_resp.status_code, providers_resp.text)
+
+        self.finish({
+            "models": _callable_ai_models(providers_resp.json().get("configs", []))
+        })
+
+
+class AiChatHandler(APIHandler):
+    """Start a Dremio AI conversation run and relay its event stream."""
+
+    @web.authenticated
+    async def post(self):
+        dremio_url = _dremio_url(self)
+        token = _dremio_token(self)
+        loop = asyncio.get_running_loop()
+        try:
+            body = json.loads(self.request.body)
+        except json.JSONDecodeError as exc:
+            raise web.HTTPError(400, "Invalid JSON request body") from exc
+        conversation_id = body.pop("conversationId", None)
+        legacy = bool(body.pop("legacy", False))
+        prompt = body.get("message", "")
+        legacy_body = {
+            "message": prompt,
+            "modelProviderId": body.get("modelProviderId"),
+            **({"sessionId": conversation_id} if conversation_id else {}),
+        }
+
+        if not legacy:
+            if conversation_id:
+                encoded_id = urllib.parse.quote(conversation_id, safe="")
+                conversation_path = f"agent/conversations/{encoded_id}/messages"
+            else:
+                conversation_path = "agent/conversations"
+            conversation_resp = await loop.run_in_executor(
+                None,
+                partial(
+                    requests.post,
+                    f"{dremio_url}/api/v4/{conversation_path}",
+                    json=body,
+                    headers={
+                        **_auth_header(token),
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=30,
+                ),
+            )
+            if conversation_resp.status_code == 404 and not conversation_id:
+                legacy = True
+            elif not conversation_resp.ok:
+                raise web.HTTPError(conversation_resp.status_code, conversation_resp.text)
+            else:
+                conversation = conversation_resp.json()
+                conversation_id = conversation.get("conversationId") or conversation_id
+                run_id = conversation.get("currentRunId")
+                if not conversation_id or not run_id:
+                    raise web.HTTPError(502, "Dremio AI did not start a conversation run")
+
+        if legacy:
+            stream_request = partial(
+                requests.post,
+                f"{dremio_url}/api/v4/agent",
+                json=legacy_body,
+                headers={
+                    **_auth_header(token),
+                    "Accept": "text/event-stream",
+                    "Content-Type": "application/json",
+                },
+                stream=True,
+                timeout=300,
+            )
+            self.set_header("X-Dremio-AI-Protocol", "legacy")
+        else:
+            stream_request = partial(
+                requests.get,
+                f"{dremio_url}/api/v4/agent/conversations/"
+                f"{urllib.parse.quote(conversation_id, safe='')}/runs/"
+                f"{urllib.parse.quote(run_id, safe='')}",
+                headers={
+                    **_auth_header(token),
+                    "Accept": "text/event-stream",
+                    "Accept-Encoding": "identity",
+                    "Connection": "keep-alive",
+                },
+                stream=True,
+                timeout=300,
+            )
+
+        stream_resp = await loop.run_in_executor(None, stream_request)
+        if not stream_resp.ok:
+            raise web.HTTPError(stream_resp.status_code, stream_resp.text)
+        self.set_header("Content-Type", "text/event-stream")
+        chunks = stream_resp.iter_content(chunk_size=4096)
+        try:
+            while True:
+                chunk = await loop.run_in_executor(None, partial(next, chunks, None))
+                if chunk is None:
+                    break
+                if chunk:
+                    self.write(chunk)
+                    await self.flush()
+        finally:
+            stream_resp.close()
+        self.finish()
+
+
 def setup_handlers(web_app):
     base = web_app.settings["base_url"].rstrip("/")
     handlers = [
@@ -1029,6 +1183,8 @@ def setup_handlers(web_app):
         (f"{base}/dremio/wiki/(.+)", WikiHandler),
         (f"{base}/dremio/jobs", JobsHandler),
         (f"{base}/dremio/sql", SqlHandler),
+        (f"{base}/dremio/ai/models", AiModelsHandler),
+        (f"{base}/dremio/ai/chat", AiChatHandler),
         (f"{base}/dremio/catalog", RootCatalogHandler),
         (f"{base}/dremio/catalog/(.+)", CatalogItemHandler),
     ]

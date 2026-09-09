@@ -34,6 +34,8 @@ interface Props {
   ) => void;
   onShowJobs: (creds: DremioCredentials) => void;
   onNewNotebook: (creds: DremioCredentials, item: CatalogItem | null) => void;
+  onToggleAI: (creds: DremioCredentials, open: boolean) => void;
+  aiOpen: boolean;
   onCredentialsChanged: (creds: DremioCredentials | null) => void;
 }
 
@@ -99,7 +101,7 @@ function RootGroup({ label, kind, items, expanded, onExpandedChange, renderItem 
   );
 }
 
-export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentialsChanged }: Props): JSX.Element {
+export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onToggleAI, aiOpen, onCredentialsChanged }: Props): JSX.Element {
   const [mode, setMode] = useState<Mode>('detecting');
   const [creds, setCreds] = useState<DremioCredentials | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -439,6 +441,8 @@ export function DremioPanel({ onShowWiki, onShowJobs, onNewNotebook, onCredentia
         onCreateFolder={() => { void handleCreateFolder(); }}
         onShowJobs={() => onShowJobs(creds)}
         onNewNotebook={() => onNewNotebook(creds, selectedItem)}
+        onToggleAI={() => onToggleAI(creds, !aiOpen)}
+        aiOpen={aiOpen}
       />
       <div className="dremio-search-bar">
         <input

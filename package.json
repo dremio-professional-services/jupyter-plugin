@@ -1,6 +1,6 @@
 {
   "name": "jupyter-dremio",
-  "version": "0.1.18",
+  "version": "0.1.23",
   "description": "JupyterLab extension for browsing the Dremio catalog",
   "keywords": [
     "jupyter",
@@ -49,6 +49,7 @@
     "@jupyterlab/application": "^4.0.0",
     "@jupyterlab/apputils": "^4.0.0",
     "@jupyterlab/notebook": "^4.0.0",
+    "@jupyterlab/rendermime": "^4.5.6",
     "@jupyterlab/ui-components": "^4.0.0",
     "@lumino/messaging": "^2.0.0",
     "@lumino/widgets": "^2.0.0",

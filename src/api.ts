@@ -162,6 +162,20 @@ function cloudApiUrl(creds: DremioCredentials, path: string): string {
   return `${creds.url.replace(/\/$/, '')}/v0/projects/${encodeURIComponent(creds.projectId)}/${path}`;
 }
 
+function aiApiUrl(creds: DremioCredentials, resource: 'model-provider/config' | string): string {
+  const baseUrl = creds.url.replace(/\/$/, '');
+  switch (creds.environment) {
+    case 'cloud-gen1':
+    case 'cloud-gen2':
+      if (resource === 'model-provider/config') return `${baseUrl}/v1/${resource}`;
+      if (!creds.projectId) throw new Error('A Dremio Cloud Project ID is required.');
+      return `${baseUrl}/v1/projects/${encodeURIComponent(creds.projectId)}/${resource}`;
+    case 'software':
+    default:
+      return `${baseUrl}/api/v4/${resource}`;
+  }
+}
+
 function requestAuthHeader(creds: DremioCredentials): Record<string, string> {
   return isCloud(creds)
     ? { Authorization: `Bearer ${creds.token}` }
@@ -679,6 +693,221 @@ export function promoteToParquetDataset(
   isFolder = false
 ): Promise<CatalogItem> {
   return promoteToSimpleFileDataset(creds, item, 'Parquet', isFolder ? 'folder' : 'file');
+}
+
+// ---------------------------------------------------------------------------
+// AI Agent
+// ---------------------------------------------------------------------------
+
+export interface AiModel {
+  providerId: string;
+  providerName: string;
+  modelName: string;
+  isDefault: boolean;
+}
+
+interface ModelProviderConfig {
+  id?: string;
+  name?: string;
+  isDefault?: boolean;
+  defaultModelName?: string;
+  privileges?: { canCallModel?: boolean };
+}
+
+function errorStatus(reason: unknown): number | undefined {
+  if (!(reason instanceof Error)) return undefined;
+  const match = reason.message.match(/^(\d{3}):/);
+  return match ? Number(match[1]) : undefined;
+}
+
+export async function fetchAvailableAiModels(creds: DremioCredentials): Promise<AiModel[]> {
+  if (!creds.direct) {
+    const data = await proxyRequest('dremio/ai/models', {
+      method: 'GET',
+      headers: proxyHeaders(creds),
+    }) as { models?: AiModel[] };
+    return data.models ?? [];
+  }
+
+  let data: { configs?: ModelProviderConfig[] };
+  try {
+    data = await directRequest(aiApiUrl(creds, 'model-provider/config'), {
+      headers: requestAuthHeader(creds),
+    });
+  } catch (reason) {
+    if (errorStatus(reason) === 403) return [];
+    throw reason;
+  }
+
+  return (data.configs ?? [])
+    .filter(provider => (
+      Boolean(provider.id)
+      && Boolean(provider.name)
+      && Boolean(provider.defaultModelName)
+      && (
+        provider.privileges?.canCallModel === true
+        || (provider.privileges?.canCallModel === undefined && provider.isDefault === true)
+      )
+    ))
+    .map(provider => ({
+      providerId: provider.id!,
+      providerName: provider.name!,
+      modelName: provider.defaultModelName!,
+      isDefault: provider.isDefault === true,
+    }));
+}
+
+export interface AiChatResponse {
+  message: string;
+  conversation: AiConversation;
+}
+
+export interface AiConversation {
+  id: string;
+  protocol: 'conversation' | 'legacy';
+}
+
+function textFromModelResult(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value !== 'object' || value === null) return '';
+  const result = value as Record<string, unknown>;
+  if (typeof result.title === 'string' && typeof result.summary === 'string') {
+    return `${result.title.trim()}\n\n${result.summary.trim()}`.trim();
+  }
+  for (const key of ['text', 'response', 'answer', 'explanation', 'sql_query', 'plan', 'title']) {
+    const candidate = result[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return JSON.stringify(result, null, 2);
+}
+
+function parseAiEventStream(
+  body: string,
+  protocol: AiConversation['protocol']
+): AiChatResponse {
+  let conversationId = '';
+  let messageText = '';
+  for (const block of body.split(/\r?\n\r?\n/)) {
+    const payload = block.split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n')
+      .trim();
+    if (!payload || payload === '[DONE]') continue;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const message = typeof event.message === 'object' && event.message !== null
+      ? event.message as Record<string, unknown>
+      : event;
+    const nextConversationId = message.conversationId ?? event.conversationId
+      ?? message.sessionId ?? event.sessionId;
+    if (typeof nextConversationId === 'string') conversationId = nextConversationId;
+    if (message.chunkType === 'error' && typeof message.message === 'string') {
+      throw new Error(message.message);
+    }
+    if (message.chunkType === 'interrupt') {
+      throw new Error('Dremio AI paused for an approval that this panel cannot complete. Continue this conversation in Dremio.');
+    }
+    if (message.chunkType === 'model') {
+      const next = textFromModelResult(message.result);
+      if (next) {
+        if (next.startsWith(messageText)) messageText = next;
+        else if (!messageText.endsWith(next)) messageText += next;
+      }
+    }
+  }
+  if (!conversationId) throw new Error('Dremio AI did not return a conversation ID.');
+  return {
+    message: messageText || 'Dremio completed the request without returning a text response.',
+    conversation: { id: conversationId, protocol },
+  };
+}
+
+async function submitLegacyAiQuery(
+  creds: DremioCredentials,
+  prompt: string,
+  model: AiModel,
+  sessionId?: string
+): Promise<Response> {
+  return fetch(aiApiUrl(creds, 'agent'), {
+    method: 'POST',
+    headers: {
+      ...requestAuthHeader(creds),
+      Accept: 'text/event-stream',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: prompt,
+      modelProviderId: model.providerId,
+      ...(sessionId ? { sessionId } : {}),
+    }),
+  });
+}
+
+export async function submitAiQuery(
+  creds: DremioCredentials,
+  prompt: string,
+  model: AiModel,
+  conversation?: AiConversation
+): Promise<AiChatResponse> {
+  const requestBody = {
+    message: prompt,
+    modelProviderId: model.providerId,
+  };
+  let response: Response;
+  let protocol: AiConversation['protocol'] = conversation?.protocol ?? 'conversation';
+  if (creds.direct) {
+    if (protocol === 'legacy') {
+      response = await submitLegacyAiQuery(creds, prompt, model, conversation?.id);
+    } else {
+      const conversationPath = conversation
+        ? `agent/conversations/${encodeURIComponent(conversation.id)}/messages`
+        : 'agent/conversations';
+      try {
+        const started = await directRequest(aiApiUrl(creds, conversationPath), {
+          method: 'POST',
+          headers: { ...requestAuthHeader(creds), 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+        const nextConversationId = started.conversationId ?? conversation?.id;
+        if (!nextConversationId || !started.currentRunId) {
+          throw new Error('Dremio AI did not start a conversation run.');
+        }
+        response = await fetch(aiApiUrl(
+          creds,
+          `agent/conversations/${encodeURIComponent(nextConversationId)}/runs/${encodeURIComponent(started.currentRunId)}`
+        ), {
+          headers: { ...requestAuthHeader(creds), Accept: 'text/event-stream' },
+        });
+      } catch (reason) {
+        if (conversation || errorStatus(reason) !== 404) throw reason;
+        protocol = 'legacy';
+        response = await submitLegacyAiQuery(creds, prompt, model);
+      }
+    }
+  } else {
+    const settings = ServerConnection.makeSettings();
+    response = await ServerConnection.makeRequest(
+      URLExt.join(settings.baseUrl, 'dremio/ai/chat'),
+      {
+        method: 'POST',
+        headers: proxyHeaders(creds),
+        body: JSON.stringify({
+          ...requestBody,
+          ...(conversation ? { conversationId: conversation.id, legacy: conversation.protocol === 'legacy' } : {}),
+        }),
+      },
+      settings
+    );
+    if (response.headers.get('X-Dremio-AI-Protocol') === 'legacy') protocol = 'legacy';
+  }
+  const responseBody = await response.text();
+  if (!response.ok) throw new Error(`${response.status}: ${responseBody}`);
+  return parseAiEventStream(responseBody, protocol);
 }
 
 /** Exchange a Dremio Cloud PAT for the short-lived Bearer token used by Cloud APIs. */

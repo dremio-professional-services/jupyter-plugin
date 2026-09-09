@@ -56,6 +56,48 @@ class Response:
 
 
 class OidcHandlerTests(unittest.TestCase):
+    def test_ai_models_include_only_callable_provider_defaults(self):
+        models = handlers._callable_ai_models([
+            {
+                "id": "provider-1",
+                "name": "OpenAI",
+                "defaultModelName": "gpt-5",
+                "isDefault": True,
+                "privileges": {"canCallModel": True},
+            },
+            {
+                "id": "provider-2",
+                "name": "Restricted",
+                "defaultModelName": "hidden-model",
+                "privileges": {"canCallModel": False},
+            },
+            {
+                "id": "provider-3",
+                "name": "Unknown privilege",
+                "defaultModelName": "unknown-model",
+            },
+            {
+                "id": "provider-4",
+                "name": "Default without privilege metadata",
+                "defaultModelName": "compatible-model",
+                "isDefault": True,
+            },
+        ])
+        self.assertEqual(models, [
+            {
+                "providerId": "provider-1",
+                "providerName": "OpenAI",
+                "modelName": "gpt-5",
+                "isDefault": True,
+            },
+            {
+                "providerId": "provider-4",
+                "providerName": "Default without privilege metadata",
+                "modelName": "compatible-model",
+                "isDefault": True,
+            },
+        ])
+
     def test_pkce_challenge_matches_rfc7636_example(self):
         verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
         self.assertEqual(

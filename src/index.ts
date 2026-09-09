@@ -5,6 +5,7 @@ import {
 } from '@jupyterlab/application';
 import { ICommandPalette, ToolbarButton, WidgetTracker } from '@jupyterlab/apputils';
 import { INotebookTracker, NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
+import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { Message } from '@lumino/messaging';
 import { Widget } from '@lumino/widgets';
 import * as React from 'react';
@@ -13,6 +14,7 @@ import { dremioIcon } from './icons';
 import { DremioPanel } from './components/DremioPanel';
 import { WikiWidget } from './WikiWidget';
 import { JobsWidget } from './JobsWidget';
+import { AIWidget } from './AIWidget';
 import { DremioCredentials, CatalogItem, buildSqlPath, submitSql, fetchFlightAuthorizationHeader } from './api';
 import { CellRunTracker, isDremioSqlCell } from './cellJobStatus';
 import {
@@ -200,7 +202,9 @@ class DremioWidget extends Widget {
   ) => void;
   private _showJobs: (creds: DremioCredentials) => void;
   private _newNotebook: (creds: DremioCredentials, item: CatalogItem | null) => void;
+  private _toggleAI: (creds: DremioCredentials, open: boolean) => void;
   private _credentialsChanged: (creds: DremioCredentials | null) => void;
+  private _aiOpen = false;
 
   constructor(
     showWiki: (
@@ -212,12 +216,14 @@ class DremioWidget extends Widget {
     ) => void,
     showJobs: (creds: DremioCredentials) => void,
     newNotebook: (creds: DremioCredentials, item: CatalogItem | null) => void,
+    toggleAI: (creds: DremioCredentials, open: boolean) => void,
     credentialsChanged: (creds: DremioCredentials | null) => void
   ) {
     super();
     this._showWiki = showWiki;
     this._showJobs = showJobs;
     this._newNotebook = newNotebook;
+    this._toggleAI = toggleAI;
     this._credentialsChanged = credentialsChanged;
     this.id = PANEL_ID;
     this.title.icon = dremioIcon;
@@ -231,6 +237,8 @@ class DremioWidget extends Widget {
         onShowWiki: this._showWiki,
         onShowJobs: this._showJobs,
         onNewNotebook: this._newNotebook,
+        onToggleAI: this._toggleAI,
+        aiOpen: this._aiOpen,
         onCredentialsChanged: this._credentialsChanged,
       }),
       this.node
@@ -240,15 +248,38 @@ class DremioWidget extends Widget {
   protected onBeforeDetach(_msg: Message): void {
     ReactDOM.unmountComponentAtNode(this.node);
   }
+
+  setAiOpen(open: boolean): void {
+    if (this._aiOpen === open) return;
+    this._aiOpen = open;
+    if (this.isAttached) this.update();
+  }
+
+  protected onUpdateRequest(_msg: Message): void {
+    if (!this.isAttached) return;
+    ReactDOM.render(
+      React.createElement(DremioPanel, {
+        onShowWiki: this._showWiki,
+        onShowJobs: this._showJobs,
+        onNewNotebook: this._newNotebook,
+        onToggleAI: this._toggleAI,
+        aiOpen: this._aiOpen,
+        onCredentialsChanged: this._credentialsChanged,
+      }),
+      this.node
+    );
+  }
 }
 
 const plugin: JupyterFrontEndPlugin<void> = {
   id: PLUGIN_ID,
   description: 'Dremio catalog browser for JupyterLab',
   autoStart: true,
+  requires: [IRenderMimeRegistry],
   optional: [ICommandPalette, ILayoutRestorer, INotebookTracker],
   activate: (
     app: JupyterFrontEnd,
+    rendermime: IRenderMimeRegistry,
     palette: ICommandPalette | null,
     restorer: ILayoutRestorer | null,
     nbTracker: INotebookTracker | null
@@ -262,6 +293,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     const cellRuns = new CellRunTracker();
     let activeCreds: DremioCredentials | null = null;
+    let aiWidget: AIWidget | null = null;
+    let catalogWidget: DremioWidget | null = null;
 
     const openSaveDialog = (
       panel: NotebookPanel,
@@ -396,6 +429,27 @@ const plugin: JupyterFrontEndPlugin<void> = {
         app.shell.add(jobsWidget, 'main');
       }
       app.shell.activateById(jobsWidget.id);
+    };
+
+    const toggleAI = (creds: DremioCredentials | null, open: boolean) => {
+      if (!open || !creds) {
+        const widget = aiWidget;
+        aiWidget = null;
+        widget?.close();
+        catalogWidget?.setAiOpen(false);
+        return;
+      }
+      if (!aiWidget || aiWidget.isDisposed) {
+        aiWidget = new AIWidget(creds, rendermime, () => {
+          aiWidget = null;
+          catalogWidget?.setAiOpen(false);
+        });
+      } else {
+        aiWidget.updateCreds(creds);
+      }
+      if (!aiWidget.isAttached) app.shell.add(aiWidget, 'right', { rank: 200 });
+      app.shell.activateById(aiWidget.id);
+      catalogWidget?.setAiOpen(true);
     };
 
     /** Create a new notebook pre-wired to the current Dremio session. */
@@ -549,8 +603,13 @@ const plugin: JupyterFrontEndPlugin<void> = {
         showWiki,
         showJobs,
         (creds, item) => { void newNotebook(creds, item); },
-        creds => { activeCreds = creds; }
+        toggleAI,
+        creds => {
+          activeCreds = creds;
+          if (!creds) toggleAI(null, false);
+        }
       );
+      catalogWidget = widget;
       void tracker.add(widget);
       return widget;
     };

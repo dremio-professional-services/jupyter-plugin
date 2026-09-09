@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jupyter-dremio"
-version = "0.1.18"
+version = "0.1.23"
 description = "JupyterLab extension for browsing the Dremio catalog"
 readme = "README.md"
 license = { file = "LICENSE" }

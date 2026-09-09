@@ -219,6 +219,11 @@
   background: var(--jp-layout-color3, #e0e0e0);
 }
 
+.dremio-toolbar-btn--active {
+  color: var(--jp-brand-color1, #1976d2);
+  background: var(--jp-layout-color3, #e0e0e0);
+}
+
 .dremio-toolbar-btn--logout {
   color: var(--jp-ui-font-color2, #888);
 }
@@ -1501,4 +1506,172 @@
 
 .dremio-cell-job-status--failed {
   border-left-color: var(--jp-error-color1, #c62828);
+}
+
+/* AI chat (right sidebar) */
+.jp-DremioAIWidget {
+  min-width: 280px;
+  overflow: hidden;
+  background: var(--jp-layout-color1, #fff);
+}
+
+.dremio-ai-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--jp-ui-font-color1, #333);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: var(--jp-ui-font-size1, 13px);
+}
+
+.dremio-ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--jp-border-color1, #d0d0d0);
+}
+
+.dremio-ai-close {
+  border: 0;
+  background: transparent;
+  color: var(--jp-ui-font-color2, #777);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.dremio-ai-model-field {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--jp-border-color1, #d0d0d0);
+}
+
+.dremio-ai-model-field label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.dremio-ai-model-field select {
+  width: 100%;
+  padding: 6px;
+  color: var(--jp-ui-font-color1, #333);
+  background: var(--jp-layout-color1, #fff);
+  border: 1px solid var(--jp-border-color1, #bbb);
+  border-radius: 3px;
+}
+
+.dremio-ai-model-field select:disabled {
+  color: var(--jp-ui-font-color2, #777);
+  background: var(--jp-layout-color2, #f5f5f5);
+  cursor: not-allowed;
+}
+
+.dremio-ai-unavailable,
+.dremio-ai-error {
+  margin-top: 7px;
+  color: var(--jp-error-color1, #c62828);
+}
+
+.dremio-ai-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.dremio-ai-empty,
+.dremio-ai-thinking {
+  color: var(--jp-ui-font-color2, #777);
+}
+
+.dremio-ai-message {
+  margin-bottom: 12px;
+}
+
+.dremio-ai-message > span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--jp-ui-font-color2, #777);
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.dremio-ai-message > div {
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  background: var(--jp-layout-color2, #f5f5f5);
+}
+
+.dremio-ai-message--user > div {
+  background: var(--jp-brand-color3, #bbdefb);
+  white-space: pre-wrap;
+}
+
+.dremio-ai-markdown > :first-child {
+  margin-top: 0;
+}
+
+.dremio-ai-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.dremio-ai-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px;
+  border: 1px solid var(--jp-border-color2, #ddd);
+  border-radius: 4px;
+  background: var(--jp-layout-color1, #fff);
+}
+
+.dremio-ai-markdown code {
+  font-family: var(--jp-code-font-family, monospace);
+}
+
+.dremio-ai-markdown :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--jp-layout-color1, #fff);
+}
+
+.dremio-ai-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.dremio-ai-composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid var(--jp-border-color1, #d0d0d0);
+}
+
+.dremio-ai-composer textarea {
+  flex: 1;
+  min-height: 54px;
+  max-height: 160px;
+  padding: 7px;
+  resize: vertical;
+  color: var(--jp-ui-font-color1, #333);
+  background: var(--jp-layout-color1, #fff);
+  border: 1px solid var(--jp-border-color1, #bbb);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.dremio-ai-composer button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--jp-brand-color1, #1976d2);
+  cursor: pointer;
+}
+
+.dremio-ai-composer button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
